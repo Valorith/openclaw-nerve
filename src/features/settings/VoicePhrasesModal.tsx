@@ -1,15 +1,14 @@
 /**
  * VoicePhrasesModal — configure voice phrases per language.
  *
- * Shown when switching to a non-English language without configured phrases,
- * or anytime via the "Voice Phrases" button in settings.
+ * Opened from Settings → Audio for any supported language.
  *
  * Lets the user set:
  * - Wake phrases (activate listening)
  * - Stop phrases (send message)
  * - Cancel phrases (discard message)
  *
- * Pre-populated with translated defaults.
+ * Pre-populated with language defaults.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -189,7 +188,7 @@ export function VoicePhrasesModal({
           </DialogTitle>
           <DialogDescription className="text-[12px] text-muted-foreground">
             Set the phrases you'll say in {languageNativeName} to control voice input.
-            English phrases always work as fallback for send &amp; cancel.
+            {languageCode !== 'en' && ' English phrases always work as fallback for send & cancel.'}
           </DialogDescription>
         </DialogHeader>
 

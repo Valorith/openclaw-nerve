@@ -18,7 +18,6 @@ interface LanguageInfo {
 
 interface LanguageState {
   language: string;
-  edgeVoiceGender: string;
   supported: LanguageInfo[];
   providers: { edge: boolean; qwen3: boolean; openai: boolean };
 }
@@ -94,21 +93,7 @@ function useLanguage() {
     }
   }, []);
 
-  const setGender = useCallback(async (edgeVoiceGender: string) => {
-    try {
-      const res = await fetch('/api/language', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ edgeVoiceGender }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setState((prev) => prev ? { ...prev, edgeVoiceGender: data.edgeVoiceGender } : prev);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  return { state, support, isMultilingual, setLanguage, setGender };
+  return { state, support, isMultilingual, setLanguage };
 }
 
 /** Single-line input that expands into a textarea on focus, collapses on blur. */
@@ -408,7 +393,7 @@ export function AudioSettings({
   const showOutput = section === 'all' || section === 'output';
   const headingLabel = section === 'input' ? 'AUDIO INPUT' : section === 'output' ? 'VOICE OUTPUT' : 'AUDIO';
   const { config, saved, updateField } = useTTSConfig();
-  const { state: langState, support, isMultilingual, setLanguage, setGender } = useLanguage();
+  const { state: langState, support, isMultilingual, setLanguage } = useLanguage();
 
   // Fetch API key status once on mount
   const [apiKeys, setApiKeys] = useState<{ openai: boolean; replicate: boolean }>({ openai: true, replicate: true });
@@ -495,10 +480,23 @@ export function AudioSettings({
     { value: 'shimmer', label: 'Shimmer' },
   ];
 
-  // Build Edge voice options from selected language
+  // Build Edge voice options from selected language.
+  // English keeps the full legacy list; other languages use curated voice pairs.
   const edgeVoicesForLang = useMemo(() => {
     const lang = langState?.language || 'en';
-    // If we have language-specific voices from the support API, use them
+
+    if (lang === 'en') {
+      return [
+        { value: 'en-US-AriaNeural', label: 'Aria (US)' },
+        { value: 'en-US-JennyNeural', label: 'Jenny (US)' },
+        { value: 'en-US-GuyNeural', label: 'Guy (US)' },
+        { value: 'en-GB-SoniaNeural', label: 'Sonia (GB)' },
+        { value: 'en-GB-RyanNeural', label: 'Ryan (GB)' },
+        { value: 'en-AU-NatashaNeural', label: 'Natasha (AU)' },
+        { value: 'en-IE-EmilyNeural', label: 'Emily (IE)' },
+      ];
+    }
+
     const supportEntry = support?.find((s) => s.code === lang);
     if (supportEntry?.edgeTtsVoices) {
       const { female, male } = supportEntry.edgeTtsVoices;
@@ -509,9 +507,11 @@ export function AudioSettings({
         { value: male, label: `${mName} (${currentLangInfo?.name || lang})` },
       ];
     }
-    // Fallback to English voices
+
+    // Fallback safety net
     return [
       { value: 'en-US-AriaNeural', label: 'Aria (US)' },
+      { value: 'en-US-JennyNeural', label: 'Jenny (US)' },
       { value: 'en-US-GuyNeural', label: 'Guy (US)' },
     ];
   }, [currentLangInfo?.name, langState?.language, support]);
@@ -576,35 +576,33 @@ export function AudioSettings({
             </div>
           )}
 
-          {/* Configure Voice Phrases button — always visible for non-English */}
-          {langState.language !== 'en' && (
-            <div className="space-y-1">
-              <button
-                onClick={() => {
-                  setPhrasesModal({
-                    open: true,
-                    code: langState.language,
-                    name: currentLangInfo?.name || langState.language,
-                    nativeName: currentLangInfo?.nativeName || langState.language,
-                  });
-                }}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-background border border-border/60 hover:border-primary transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <Mic size={14} className="text-primary" aria-hidden="true" />
-                  <span className="text-[12px]">Voice Phrases</span>
-                </div>
-                <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors">
-                  {phrasesStatus[langState.language]?.configured ? 'Edit ›' : 'Configure ›'}
-                </span>
-              </button>
-              {!phrasesStatus[langState.language]?.configured && (
-                <span className="text-[10px] text-muted-foreground/80 px-1">
-                  Optional: add local stop/cancel words for {currentLangInfo?.name || langState.language}.
-                </span>
-              )}
-            </div>
-          )}
+          {/* Configure Voice Phrases button — available for all languages (including English) */}
+          <div className="space-y-1">
+            <button
+              onClick={() => {
+                setPhrasesModal({
+                  open: true,
+                  code: langState.language,
+                  name: currentLangInfo?.name || langState.language,
+                  nativeName: currentLangInfo?.nativeName || langState.language,
+                });
+              }}
+              className="w-full flex items-center justify-between px-3 py-2.5 bg-background border border-border/60 hover:border-primary transition-colors group"
+            >
+              <div className="flex items-center gap-3">
+                <Mic size={14} className="text-primary" aria-hidden="true" />
+                <span className="text-[12px]">Voice Phrases</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground group-hover:text-primary transition-colors">
+                {phrasesStatus[langState.language]?.configured ? 'Edit ›' : 'Configure ›'}
+              </span>
+            </button>
+            {!phrasesStatus[langState.language]?.configured && (
+              <span className="text-[10px] text-muted-foreground/80 px-1">
+                Optional: customize wake/send/cancel phrases for {currentLangInfo?.name || langState.language}.
+              </span>
+            )}
+          </div>
 
         </div>
       )}
@@ -674,33 +672,6 @@ export function AudioSettings({
             </div>
           )}
 
-          {ttsProvider === 'edge' && langState && (
-            <div className="flex items-center justify-between px-3 py-2.5 bg-background border border-border/60 hover:border-muted-foreground transition-colors">
-              <span className="text-[12px]">Voice Gender</span>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => setGender('female')}
-                  className={`px-2.5 py-1 text-[10px] font-mono uppercase tracking-wide border transition-colors ${
-                    langState.edgeVoiceGender === 'female'
-                      ? 'bg-primary/20 border-primary text-primary'
-                      : 'bg-background border-border/60 text-muted-foreground hover:border-muted-foreground'
-                  }`}
-                >
-                  Female
-                </button>
-                <button
-                  onClick={() => setGender('male')}
-                  className={`px-2.5 py-1 text-[10px] font-mono uppercase tracking-wide border transition-colors ${
-                    langState.edgeVoiceGender === 'male'
-                      ? 'bg-primary/20 border-primary text-primary'
-                      : 'bg-background border-border/60 text-muted-foreground hover:border-muted-foreground'
-                  }`}
-                >
-                  Male
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
