@@ -22,7 +22,7 @@ export function gitFetchAndCheckout(cwd: string, tag: string): void {
   }
 
   try {
-    execSync(`git checkout ${tag}`, { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT });
+    execSync(`git checkout --force ${tag}`, { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT });
   } catch (err) {
     throw new UpdateError(
       `git checkout ${tag} failed: ${errorMessage(err)}`,
@@ -37,7 +37,7 @@ export function gitFetchAndCheckout(cwd: string, tag: string): void {
  */
 export function gitCheckoutLocal(cwd: string, ref: string): void {
   try {
-    execSync(`git checkout ${ref}`, { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT });
+    execSync(`git checkout --force ${ref}`, { cwd, stdio: 'pipe', timeout: EXEC_TIMEOUT });
   } catch (err) {
     throw new UpdateError(
       `git checkout ${ref} failed: ${errorMessage(err)}`,
