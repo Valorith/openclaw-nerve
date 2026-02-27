@@ -32,7 +32,7 @@ interface RecoveryState {
 // ─── Hook ───────────────────────────────────────────────────────────────────────
 
 interface UseChatRecoveryDeps {
-  rpc: (method: string, params?: Record<string, unknown>) => Promise<any>;
+  rpc: (method: string, params?: Record<string, unknown>) => Promise<unknown>;
   currentSessionRef: React.RefObject<string>;
   isGeneratingRef: React.RefObject<boolean>;
   activeRunIdRef: React.RefObject<string | null>;
