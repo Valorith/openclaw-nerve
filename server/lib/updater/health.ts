@@ -20,7 +20,6 @@ const DEFAULT_HOST = '127.0.0.1';
  * Check that the server is healthy and reports the expected version.
  */
 export async function checkHealth(cwd: string, targetVersion: string): Promise<HealthResult> {
-  const port = readPort(cwd);
   const baseUrl = resolveHealthCheckBaseUrl(cwd);
   const deadline = Date.now() + TOTAL_TIMEOUT;
 

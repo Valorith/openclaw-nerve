@@ -143,8 +143,8 @@ describe('updater health checks', () => {
     );
   });
 
-  it('uses a specific configured LAN or tailnet host for health probes', async () => {
-    const cwd = createProjectEnv(['HOST=100.92.14.6', 'PORT=4312']);
+  it('probes IPv6 unspecified bind through loopback', async () => {
+    const cwd = createProjectEnv(['HOST=::', 'PORT=4312']);
     mockHealthyVersion('1.2.3');
 
     const { checkHealth } = await import('./health.js');
@@ -153,7 +153,39 @@ describe('updater health checks', () => {
     expect(result).toMatchObject({ healthy: true, versionMatch: true, reportedVersion: '1.2.3' });
     expect(httpGetMock).toHaveBeenNthCalledWith(
       1,
-      'http://100.92.14.6:4312/health',
+      'http://[::1]:4312/health',
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function),
+    );
+  });
+
+  it('probes bracketed IPv6 unspecified bind through loopback', async () => {
+    const cwd = createProjectEnv(['HOST=[::]', 'PORT=4313']);
+    mockHealthyVersion('1.2.3');
+
+    const { checkHealth } = await import('./health.js');
+    const result = await checkHealth(cwd, '1.2.3');
+
+    expect(result).toMatchObject({ healthy: true, versionMatch: true, reportedVersion: '1.2.3' });
+    expect(httpGetMock).toHaveBeenNthCalledWith(
+      1,
+      'http://[::1]:4313/health',
+      expect.objectContaining({ timeout: 5000 }),
+      expect.any(Function),
+    );
+  });
+
+  it('uses a specific configured LAN or tailnet host for health probes', async () => {
+    const cwd = createProjectEnv(['HOST=100.92.14.6', 'PORT=4314']);
+    mockHealthyVersion('1.2.3');
+
+    const { checkHealth } = await import('./health.js');
+    const result = await checkHealth(cwd, '1.2.3');
+
+    expect(result).toMatchObject({ healthy: true, versionMatch: true, reportedVersion: '1.2.3' });
+    expect(httpGetMock).toHaveBeenNthCalledWith(
+      1,
+      'http://100.92.14.6:4314/health',
       expect.objectContaining({ timeout: 5000 }),
       expect.any(Function),
     );
