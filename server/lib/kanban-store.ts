@@ -39,6 +39,16 @@ function uniqueSlugId(title: string, existingIds: Set<string>): string {
   }
 }
 
+const runKeySequenceByBase = new Map<string, number>();
+
+/** Build a human-readable run key that stays unique across same-millisecond reruns. */
+function uniqueRunSessionKey(id: string, now: number): string {
+  const base = `kb-${id}-${now}`;
+  const nextSequence = (runKeySequenceByBase.get(base) ?? 0) + 1;
+  runKeySequenceByBase.set(base, nextSequence);
+  return nextSequence === 1 ? base : `${base}-${nextSequence.toString(36)}`;
+}
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export type TaskStatus = 'backlog' | 'todo' | 'in-progress' | 'review' | 'done' | 'cancelled';
@@ -53,6 +63,7 @@ export interface TaskFeedback {
 
 export interface TaskRunLink {
   sessionKey: string;
+  childSessionKey?: string;
   sessionId?: string;
   runId?: string;
   startedAt: number;
@@ -360,11 +371,21 @@ export class KanbanStore {
     if (data.config.quickViewLimit === undefined) {
       data.config.quickViewLimit = DEFAULT_CONFIG.quickViewLimit;
     }
-    data.tasks = data.tasks.map((task) => ({
-      ...task,
-      status: normalizeTaskStatus(task.status),
-      priority: normalizeTaskPriority(task.priority),
-    }));
+    data.tasks = data.tasks.map((task) => {
+      const childSessionKey = task.run?.childSessionKey ?? task.run?.sessionId;
+      return {
+        ...task,
+        status: normalizeTaskStatus(task.status),
+        priority: normalizeTaskPriority(task.priority),
+        run: task.run
+          ? {
+              ...task.run,
+              childSessionKey,
+              sessionId: task.run.sessionId ?? childSessionKey,
+            }
+          : task.run,
+      };
+    });
     data.meta.schemaVersion = CURRENT_SCHEMA_VERSION;
     return data;
   }
@@ -749,8 +770,7 @@ export class KanbanStore {
       }
 
       const now = Date.now();
-      // Include a short timestamp suffix so reruns of the same task get unique session keys.
-      const sessionKey = `kb-${id}-${now}`;
+      const sessionKey = uniqueRunSessionKey(id, now);
 
       task.status = 'in-progress';
       task.run = {
@@ -758,6 +778,8 @@ export class KanbanStore {
         startedAt: now,
         status: 'running',
       };
+      task.result = undefined;
+      task.resultAt = undefined;
       if (options?.model) task.model = options.model;
       if (options?.thinking) task.thinking = options.thinking;
 
@@ -773,6 +795,45 @@ export class KanbanStore {
       data.tasks[idx] = task;
       await this.writeRaw(data);
       await this.audit({ ts: now, action: 'execute', taskId: id, actor });
+      return task;
+    });
+  }
+
+  async attachRunIdentifiers(
+    taskId: string,
+    sessionKey: string,
+    identifiers: { childSessionKey?: string; runId?: string },
+  ): Promise<KanbanTask | null> {
+    return this.withStore(async () => {
+      const data = await this.readRaw();
+      const idx = data.tasks.findIndex((t) => t.id === taskId);
+      if (idx === -1) throw new TaskNotFoundError(taskId);
+
+      const task = data.tasks[idx];
+      if (!task.run || task.run.status !== 'running' || task.run.sessionKey !== sessionKey) {
+        return null;
+      }
+
+      const nextChildSessionKey = identifiers.childSessionKey ?? task.run.childSessionKey ?? task.run.sessionId;
+      const nextRunId = identifiers.runId ?? task.run.runId;
+      const nextSessionId = task.run.sessionId ?? nextChildSessionKey;
+
+      if (
+        nextChildSessionKey === task.run.childSessionKey
+        && nextRunId === task.run.runId
+        && nextSessionId === task.run.sessionId
+      ) {
+        return task;
+      }
+
+      task.run = {
+        ...task.run,
+        childSessionKey: nextChildSessionKey,
+        sessionId: nextSessionId,
+        runId: nextRunId,
+      };
+      data.tasks[idx] = task;
+      await this.writeRaw(data);
       return task;
     });
   }
@@ -925,6 +986,7 @@ export class KanbanStore {
 
   async completeRun(
     taskId: string,
+    sessionKey: string,
     result?: string,
     error?: string,
   ): Promise<KanbanTask> {
@@ -943,6 +1005,14 @@ export class KanbanStore {
         );
       }
 
+      if (task.run.sessionKey !== sessionKey) {
+        throw new InvalidTransitionError(
+          task.status,
+          error ? 'todo' : 'review',
+          `Run key mismatch for task "${taskId}": active run is "${task.run.sessionKey}", got "${sessionKey}"`,
+        );
+      }
+
       const now = Date.now();
       task.run.endedAt = now;
 
@@ -951,6 +1021,8 @@ export class KanbanStore {
         task.run.status = 'error';
         task.run.error = error;
         task.status = 'todo';
+        task.result = undefined;
+        task.resultAt = undefined;
 
         const maxOrder = data.tasks
           .filter((t) => t.status === 'todo' && t.id !== taskId)
@@ -980,7 +1052,7 @@ export class KanbanStore {
         ts: now,
         action: 'complete_run',
         taskId,
-        detail: error ? `error: ${error}` : 'success',
+        detail: error ? `session=${sessionKey},error: ${error}` : `session=${sessionKey},success`,
       });
       return task;
     });
